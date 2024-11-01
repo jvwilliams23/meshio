@@ -120,10 +120,10 @@ def read(filename):  # noqa: C901
             elif key[:12] == "vals_nod_var":
                 idx = 0 if len(key) == 12 else int(key[12:]) - 1
                 value.set_auto_mask(False)
-                # For now only take the first value
-                pd[idx] = value[0]
-                if len(value) > 1:
-                    warn("Skipping some time data")
+                # loop over all value (equal to timesteps)
+                pd[idx] = []
+                for val in value:
+                    pd[idx].append(val)
             elif key == "name_elem_var":
                 value.set_auto_mask(False)
                 cell_data_names = [b"".join(c).decode("UTF-8") for c in value[:]]
@@ -134,13 +134,12 @@ def read(filename):  # noqa: C901
                 block = 0 if m.group(2) is None else int(m.group(2)) - 1
 
                 value.set_auto_mask(False)
-                # For now only take the first value
-                if idx not in cd:
-                    cd[idx] = {}
-                cd[idx][block] = value[0]
 
-                if len(value) > 1:
-                    warn("Skipping some time data")
+                # loop over all value (equal to timesteps)
+                cd[idx] = []
+                for t, val in enumerate(value):
+                    cd[idx].append({})
+                    cd[idx][t][block] = val
             elif key == "ns_names":
                 value.set_auto_mask(False)
                 ns_names = [b"".join(c).decode("UTF-8") for c in value[:]]
@@ -152,28 +151,57 @@ def read(filename):  # noqa: C901
 
         # merge element block data; can't handle blocks yet
         for k, value in cd.items():
-            cd[k] = np.concatenate(list(value.values()))
+            # merge element block data; can't handle blocks yet
+            for t in range(len(value)):
+                cd[k][t] = np.concatenate(list(value[t].values()))
+
 
         # Check if there are any <name>R, <name>Z tuples or <name>X, <name>Y, <name>Z
         # triplets in the point data. If yes, they belong together.
         single, double, triple = categorize(point_data_names)
 
         point_data = {}
-        for name, idx in single:
-            point_data[name] = pd[idx]
-        for name, idx0, idx1 in double:
-            point_data[name] = np.column_stack([pd[idx0], pd[idx1]])
-        for name, idx0, idx1, idx2 in triple:
-            point_data[name] = np.column_stack([pd[idx0], pd[idx1], pd[idx2]])
+        for name_base, idx in single:
+            for t, pd_t in enumerate(pd[idx]):
+                if len(pd[idx]) > 1:
+                    name = f"{name_base}_time{t}"
+                else:
+                    name = name_base
+                if name not in point_data:
+                    point_data[name] = []
+                point_data[name] = pd_t
+        for name_base, idx0, idx1 in double:
+            for t, (pd0_t, pd1_t) in enumerate(zip(pd[idx0], pd[idx1])):
+                if len(pd[idx0]) > 1:
+                    name = f"{name_base}_time{t}"
+                else:
+                    name = name_base
+                if name not in point_data:
+                    point_data[name] = []
+                point_data[name] = np.column_stack([pd0_t, pd1_t])
+        for name_base, idx0, idx1, idx2 in triple:
+            for t, (pd0_t, pd1_t, pd2_t) in enumerate(zip(pd[idx0], pd[idx1], pd[idx2])):
+                if len(pd[idx0]) > 1:
+                    name = f"{name_base}_time{t}"
+                else:
+                    name = name_base
+                if name not in point_data:
+                    point_data[name] = []
+                point_data[name] = np.column_stack([pd0_t, pd1_t, pd2_t])
 
         cell_data = {}
         k = 0
         for _, cell in cells:
             n = len(cell)
-            for name, data in zip(cell_data_names, cd.values()):
-                if name not in cell_data:
-                    cell_data[name] = []
-                cell_data[name].append(data[k : k + n])
+            for name_base, (idx, data) in zip(cell_data_names, cd.items()):
+                for t, data_per_time in enumerate(data):
+                    if len(data) > 1:
+                        name = f"{name_base}_time{t}"
+                    else:
+                        name = name_base
+                    if name not in cell_data:
+                        cell_data[name] = []
+                    cell_data[name].append(data_per_time[k : k + n])
             k += n
 
         point_sets = {name: dat for name, dat in zip(ns_names, ns)}
