@@ -397,5 +397,38 @@ def write(filename, mesh):
                 # Exodus is 1-based
                 data[:] = values + 1
 
+        # cell data
+        # The variable `name_elem_var` holds the names and indices of the node variables, the
+        # variables `vals_elem_var{1,2,...}` hold the actual data.
+        num_elem_var = len(mesh.cell_data)
+        if num_elem_var > 0:
+            rootgrp.createDimension("num_elem_var", num_elem_var)
+            # set names
+            cell_data_names = rootgrp.createVariable(
+                "name_elem_var", "S1", ("num_elem_var", "len_string")
+            )
+            cell_data_names.set_auto_mask(False)
+            for k, name in enumerate(mesh.cell_data.keys()):
+                for i, letter in enumerate(name):
+                    cell_data_names[k, i] = letter.encode()
+
+            for k, (name, data) in enumerate(mesh.cell_data.items()):
+                # For some reason, data is list of len == 1. 
+                # Not sure when larger lists this would occur, in all tests so far it has been = 1
+                assert len(data) == 1, f"cell_data expected len == 1, len is {len(data)}, name {name}"
+                data = data[0] 
+                for i, s in enumerate(data.shape):
+                    rootgrp.createDimension(f"dim_elem_var{k}{i}", s)
+                dims = ["time_step"] + [
+                    f"dim_elem_var{k}{i}" for i in range(len(data.shape))
+                ]
+                elem_data = rootgrp.createVariable(
+                    f"vals_elem_var{k + 1}",
+                    numpy_to_exodus_dtype[data.dtype.name],
+                    tuple(dims),
+                    fill_value=False,
+                )
+                elem_data[0] = data
+
 
 register_format("exodus", [".e", ".exo", ".ex2"], read, {"exodus": write})
