@@ -291,6 +291,12 @@ def write(filename, mesh):
     import netCDF4
 
     with netCDF4.Dataset(filename, "w") as rootgrp:
+        # if time-dependent, pass in mesh and time_step as list
+        if type(mesh) is list:
+            mesh, time_step = mesh
+        else:
+            time_step = None
+
         # set global data
         now = datetime.datetime.now().isoformat()
         rootgrp.title = f"Created by meshio v{__version__}, {now}"
@@ -308,7 +314,7 @@ def write(filename, mesh):
         rootgrp.createDimension("len_string", 33)
         rootgrp.createDimension("len_line", 81)
         rootgrp.createDimension("four", 4)
-        rootgrp.createDimension("time_step", None)
+        rootgrp.createDimension("time_step", time_step)
 
         # dummy time step
         data = rootgrp.createVariable("time_whole", "f4", ("time_step",))
@@ -377,6 +383,9 @@ def write(filename, mesh):
                     fill_value=False,
                 )
                 node_data[0] = data
+                if time_step is not None:
+                    for time_index in range(1, time_step):
+                        node_data[time_index] = data
 
         # node sets
         num_point_sets = len(mesh.point_sets)

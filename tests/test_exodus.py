@@ -23,6 +23,7 @@ test_set = [
     helpers.add_point_data(helpers.tri_mesh, 2),
     helpers.add_point_data(helpers.tri_mesh, 3),
     helpers.add_cell_data(helpers.tri_mesh, [("a", (3,), np.float64)]),
+    helpers.add_timevarying_point_data(helpers.tri_mesh, 1, 2),
     helpers.add_point_sets(helpers.tri_mesh),
     helpers.add_point_sets(helpers.tet_mesh),
 ]
