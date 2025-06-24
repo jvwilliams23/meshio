@@ -15,7 +15,7 @@ from ..__about__ import __version__
 from .._common import warn
 from .._exceptions import ReadError
 from .._helpers import register_format
-from .._mesh import Mesh
+from .._mesh import Mesh, CellBlock
 
 exodus_to_meshio_type = {
     "SPHERE": "vertex",
@@ -85,10 +85,15 @@ def read(filename):  # noqa: C901
         cd = {}
         cells = []
         ns_names = []
-        # eb_names = []
+        eb_names = []
         ns = []
         point_sets = {}
         info = []
+
+        for key, value in nc.variables.items():
+            if key == "eb_names":
+                value.set_auto_mask(False)
+                eb_names = [b"".join(c).decode("UTF-8") for c in value[:]]
 
         for key, value in nc.variables.items():
             if key == "info_records":
@@ -136,9 +141,12 @@ def read(filename):  # noqa: C901
                 value.set_auto_mask(False)
 
                 # loop over all value (equal to timesteps)
-                cd[idx] = []
+                if idx not in cd:
+                    cd[idx] = []
+
                 for t, val in enumerate(value):
-                    cd[idx].append({})
+                    if block == 0:
+                        cd[idx].append({})
                     cd[idx][t][block] = val
             elif key == "ns_names":
                 value.set_auto_mask(False)
@@ -148,12 +156,6 @@ def read(filename):  # noqa: C901
             #     eb_names = [b"".join(c).decode("UTF-8") for c in value[:]]
             elif key.startswith("node_ns"):  # Expected keys: node_ns1, node_ns2
                 ns.append(value[:] - 1)  # Exodus is 1-based
-
-        # merge element block data; can't handle blocks yet
-        for k, value in cd.items():
-            # merge element block data; can't handle blocks yet
-            for t in range(len(value)):
-                cd[k][t] = np.concatenate(list(value[t].values()))
 
 
         # Check if there are any <name>R, <name>Z tuples or <name>X, <name>Y, <name>Z
@@ -190,25 +192,36 @@ def read(filename):  # noqa: C901
                 point_data[name] = np.column_stack([pd0_t, pd1_t, pd2_t])
 
         cell_data = {}
-        k = 0
-        for _, cell in cells:
-            n = len(cell)
-            for name_base, (idx, data) in zip(cell_data_names, cd.items()):
-                for t, data_per_time in enumerate(data):
+        for name_base, (idx, data) in zip(cell_data_names, cd.items()):
+            for t, data_per_time in enumerate(data):
+                for b, (_, cell) in enumerate(cells):
                     if len(data) > 1:
                         name = f"{name_base}_time{t}"
                     else:
                         name = name_base
                     if name not in cell_data:
                         cell_data[name] = []
-                    cell_data[name].append(data_per_time[k : k + n])
-            k += n
+                    cell_data[name].append(data_per_time[b])
 
         point_sets = {name: dat for name, dat in zip(ns_names, ns)}
 
+        # Format data into CellBlock with block name as a tag
+        out_cells = []
+        for cell_block, block_name in zip(cells, eb_names):
+            if isinstance(cell_block, tuple):
+                cell_type, data = cell_block
+                cell_block = CellBlock(
+                    cell_type,
+                    # polyhedron data cannot be converted to numpy arrays
+                    # because the sublists don't all have the same length
+                    data if cell_type.startswith("polyhedron") else np.asarray(data),
+                    tags=[block_name]
+                )
+            out_cells.append(cell_block)
+
     return Mesh(
         points,
-        cells,
+        out_cells,
         point_data=point_data,
         cell_data=cell_data,
         point_sets=point_sets,
